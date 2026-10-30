@@ -1,0 +1,23 @@
+# Dependencies and caches
+node_modules/
+__pycache__/
+*.pyc
+
+# Logs and OS clutter
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+
+# Local only: full-size test captures (20-40 MB each) and Workshop page screenshots
+captures/
+workshop/
+
+# Build output (attached to GitHub releases) and local-only notes
+mod/*
+!mod/preview.png
+STATUS.md
