@@ -1,7 +1,7 @@
 "use strict";
 // Bundles src/ into mod/main.js (a mod entry runs inside an async IIFE: no import/export),
-// writes mod/modinfo.json, and a placeholder mod/preview.png only if there is none (the real one
-// comes from tools/make_art.py). `--check` fails if mod/ is stale.
+// writes mod/modinfo.json, and a placeholder mod/preview.png only if there is none. `--check`
+// fails if mod/ is stale.
 // The in-game uploader sends name -> Steam title, description -> Steam description, version ->
 // change note. The description is plain text: it also shows in the game's mod list.
 const fs = require("node:fs"), path = require("node:path"), zlib = require("node:zlib");
