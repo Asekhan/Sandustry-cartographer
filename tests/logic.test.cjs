@@ -77,18 +77,18 @@ test("PNG round trip: downscale 2 and 4 average premultiplied pixels", async () 
   }
 });
 
-test("PNG round trip: filled background is RGB with sky above and cave below the surface", async () => {
+test("PNG round trip: filled background is RGB, sky wherever the capture is transparent", async () => {
   const w = 32, h = 32, img = new Uint8Array(w * h * 4);
   // terrain from row 16 down, with a transparent hole at (4..8, 20..24)
   for (let y = 16; y < h; y++) for (let x = 0; x < w; x++) { const o = (y * w + x) * 4; img.set([100, 50, 25, 255], o); }
   for (let y = 20; y < 24; y++) for (let x = 4; x < 8; x++) img.set([0, 0, 0, 0], (y * w + x) * 4);
-  const bg = { surface: new Int32Array(w).fill(16), sky0: [0, 0, 100], sky1: [100, 200, 255], skyEnd: 16, cave: [21, 33, 12] };
+  const bg = { sky0: [0, 0, 100], sky1: [100, 200, 255], skyEnd: 16 };
   const d = decodePng(await encode(img, w, h, 1, "filled", bg, 12));
   assert.equal(d.ct, 2);
   const at = (x, y) => [...d.px.subarray((y * w + x) * 3, (y * w + x) * 3 + 3)];
   assert.deepEqual(at(0, 0), [0, 0, 100]);
   assert.deepEqual(at(0, 8), [50, 100, 178]);
-  assert.deepEqual(at(5, 21), [21, 33, 12]);
+  assert.deepEqual(at(5, 21), [100, 200, 255]);
   assert.deepEqual(at(10, 21), [100, 50, 25]);
 });
 

@@ -1,5 +1,5 @@
 // Capture engine: drives the camera across the world, reads each rendered frame and feeds
-// strips to an encoder. Render-only: it never writes world state. Uses Sandustry 0.5.6
+// strips to an encoder. Render-only: it never writes world state. Uses Sandustry 0.5.6 / 0.6.0
 // internals (camera, Pixi stage, shared cell arrays) because no stable API covers rendering.
 const CartoCapture = (() => {
   const SIM_SET_PAUSED = 54;   // simulation manager message id (0.5.6)
@@ -9,7 +9,7 @@ const CartoCapture = (() => {
   const STALL_MS = 6000;       // no rendered frame for this long = abort
   const TRIM_PAD_CELLS = 48;   // sky kept above the highest thing when trimming
   const WATER_MATERIAL = 5, DEFAULT_ELEMENT_MATERIAL = 50;
-  const SKY_TOP = [42, 111, 176], SKY_HORIZON = [159, 212, 240], CAVE = [21, 33, 12];
+  const SKY_TOP = [42, 111, 176], SKY_HORIZON = [159, 212, 240];
 
   let current = null, installedOn = null;
 
@@ -25,6 +25,17 @@ const CartoCapture = (() => {
       if (shadow[i] > lim) { shadow[i] = lim; changed++; }
     }
     return changed;
+  }
+
+  // Lamp lights (0.6.0 light buffer): instances of [x, y, size, intensity, r, g, b], x and y in
+  // screen px. Only lights for which pick(x, y) is true turn white; white keeps the strongest
+  // channel, so a lamp stays as bright as its main colour.
+  function whitenLights(data, count, stride, pick) {
+    for (let i = 0, o = 4; i < count; i++, o += stride) {
+      if (!pick(data[o - 4], data[o - 3])) continue;
+      const v = Math.max(data[o], data[o + 1], data[o + 2]);
+      data[o] = data[o + 1] = data[o + 2] = v;
+    }
   }
 
   function install(sk) {
@@ -105,7 +116,7 @@ const CartoCapture = (() => {
   //       onProgress(p), isCancelled(), log(o) }
   async function run(sk, L, cfg, io) {
     const st = sk.state, { pixi, missing } = internals(st);
-    if (missing.length) throw new Error("Game internals not found (" + missing.join(", ") + "). This mod targets Sandustry 0.5.6.");
+    if (missing.length) throw new Error("Game internals not found (" + missing.join(", ") + "). This mod targets Sandustry 0.5.6 and 0.6.0.");
     if (st.session.paused) throw new Error("The game is paused. Close the menu, then capture.");
     const zoom = (st.session.view && st.session.view.zoom) || 1;
     if (zoom !== 1) throw new Error("Zoom must be 1x (turn off cinematic zoom-out).");
@@ -127,6 +138,13 @@ const CartoCapture = (() => {
       player: player && player.container ? player.container.visible : null,
       trail: player && player.trailContainer ? player.trailContainer.visible : null,
     };
+    // Tool previews (grabber box, build ghost) follow the mouse; park it off the map while
+    // capturing. The 2D overlay also draws structure parts (heat cannon nozzles), so it stays.
+    const mouse = st.session.input && st.session.input.mouse;
+    const mouseAt = (m) => m && m.position && m.worldPosition && m.cellPosition
+      ? [m.position.x, m.position.y, m.worldPosition.x, m.worldPosition.y, m.cellPosition.x, m.cellPosition.y] : null;
+    const setMouse = (m, v) => { [m.position.x, m.position.y, m.worldPosition.x, m.worldPosition.y, m.cellPosition.x, m.cellPosition.y] = v; };
+    const savedMouse = mouseAt(mouse), PARKED = [-1e5, -1e5, -1e5, -1e5, -25000, -25000];
     const timeFrozen = st.store.meta.time;
     const uFilterTime = pixi.filter.uniforms.time;
     const uOutlineTime = pixi.outlineElementsFilter && pixi.outlineElementsFilter.uniforms ? pixi.outlineElementsFilter.uniforms.time : undefined;
@@ -143,6 +161,33 @@ const CartoCapture = (() => {
     const floors = !fullbright && floorOpen > floorRock && !!(pixi.shadowMapTilemap && pixi.shadowMapTexture);
     const rOpen = shadowByteFor(floorOpen), rRock = 255;
     const xwin = xray || floors ? new Uint8Array(pixi.colorBuffer.length) : null, noFog = new Uint8Array(1001);
+    // White lamps: only the player's Light structures (4 x 4 cells, light at the centre); glowing
+    // ores and other natural lights keep their colour. The game fills the light batches and draws
+    // them into the light textures before frame:render, so the batches are recoloured there and
+    // those textures drawn again.
+    const lampCells = new Set();
+    const structs = sk.engine && sk.engine.api && sk.engine.api.structures; // engine API (takes the state), not sk.api
+    if (cfg.whiteLights && structs && structs.forEachOfType) {
+      const LIGHT = sk.enums && sk.enums.StructureType && sk.enums.StructureType.Light !== undefined ? sk.enums.StructureType.Light : "Light";
+      structs.forEachOfType(st, LIGHT, (s) => {
+        for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 4; dx++) lampCells.add((s.x + dx) * 65536 + s.y + dy);
+      });
+    }
+    const lightPasses = lampCells.size && pixi.lightBuffer
+      ? [pixi.lightBuffer.clamped, pixi.lightBuffer.unclamped].filter((p) => p && p.batch && p.instanceBuffer && p.geometry && p.targets)
+      : [];
+    const isLamp = (x, y) => lampCells.has(Math.floor((x + st.session.camera.x) / C) * 65536 + Math.floor((y + st.session.camera.y) / C));
+    const whiteLights = () => {
+      for (const pass of lightPasses) {
+        const b = pass.batch, attr = pass.geometry.attributes && pass.geometry.attributes.aLight;
+        const stride = attr && attr.stride ? attr.stride / 4 : 7;
+        if (!b.count || pass.instanceBuffer.data !== b.data) continue;
+        whitenLights(b.data, b.count, stride, isLamp);
+        pass.instanceBuffer.update(b.count * stride * 4);
+        pass.geometry.instanceCount = b.count;
+        for (const t of pass.targets) renderer.render({ container: t.root, target: t.texture, clear: true, clearColor: [0, 0, 0, 0] });
+      }
+    };
 
     let simPaused = false;
     if (manager && typeof manager.postMessage === "function") { manager.postMessage([SIM_SET_PAUSED, true]); simPaused = true; }
@@ -153,14 +198,14 @@ const CartoCapture = (() => {
     const mode = cfg.background === "filled" ? "filled" : "transparent";
     let bg = null;
     if (mode === "filled") {
-      const surface = new Int32Array(outW), vals = [];
+      // The gradient reaches the horizon colour at the median ground line.
+      const vals = [];
       for (let ox = 0; ox < outW; ox++) {
         const cx = Math.min(W - 1, Math.floor((region.x0 + ox * k) / C)), s = scan.surface[cx];
-        surface[ox] = s >= H ? outH + 1 : Math.round((s * C - region.y0) / k);
-        if (s < H) vals.push(surface[ox]);
+        if (s < H) vals.push(Math.round((s * C - region.y0) / k));
       }
       vals.sort((a, b) => a - b);
-      bg = { surface, sky0: SKY_TOP, sky1: SKY_HORIZON, skyEnd: vals.length ? vals[vals.length >> 1] : outH, cave: CAVE };
+      bg = { sky0: SKY_TOP, sky1: SKY_HORIZON, skyEnd: vals.length ? vals[vals.length >> 1] : outH };
     }
 
     const stats = { tiles: plan.count, frames: 0, xrayCells: 0, litCells: 0, camRetries: 0 };
@@ -172,15 +217,13 @@ const CartoCapture = (() => {
     const frameBuf = new Uint8Array(fw * fh * 4);
     let waiter = null, lastFrameAt = performance.now();
     const job = {
-      onUpdate() { st.store.meta.time = timeFrozen; },
+      onUpdate() { st.store.meta.time = timeFrozen; if (savedMouse) setMouse(mouse, PARKED); },
       onRender() {
         if (cfg.hidePlayer && player) {
           if (player.container) player.container.visible = false;
           if (player.trailContainer) player.trailContainer.visible = false;
         }
         if (pixi.edgeMist && pixi.edgeMist.sprite) pixi.edgeMist.sprite.renderable = false;
-        const d2 = pixi.dynamic2D && pixi.dynamic2D.context;
-        if (d2) { d2.save(); d2.setTransform(1, 0, 0, 1, 0, 0); d2.clearRect(0, 0, d2.canvas.width, d2.canvas.height); d2.restore(); }
         pixi.foregroundSprite.visible = !fullbright;
         if (bgContainer) bgContainer.visible = false;
         pixi.filter.uniforms.lightPosition = [-1e6, -1e6]; // the player's lamp sits at screen centre
@@ -188,6 +231,7 @@ const CartoCapture = (() => {
         pixi.filter.uniforms.minLightAmount = floorRock;      // the game resets it to 0 every update
         if (uFilterTime !== undefined) pixi.filter.uniforms.time = uFilterTime;
         if (uOutlineTime !== undefined) pixi.outlineElementsFilter.uniforms.time = uOutlineTime;
+        if (lightPasses.length) whiteLights();
         if (xwin) {
           const ox = Math.floor(st.session.camera.x / C), oy = Math.floor(st.session.camera.y / C), ts = pixi.tilemapSize;
           const n = L.xrayWindow(xwin, md.data, sim.cellIds, damagedTypes, md.width, md.height, ox, oy, ts.width, ts.height, xray ? xray.kinds : noFog, xray ? xray.replacements : []);
@@ -196,6 +240,12 @@ const CartoCapture = (() => {
         }
       },
     };
+    // 0.5.6 (Pixi 7) emits one postrender event per frame. 0.6.0 (Pixi 8) has no such event: it
+    // calls the postrender runner after every render pass (three a frame, two into textures), so
+    // only the pass drawn to the screen counts.
+    const runner = renderer.runners && renderer.runners.postrender;
+    const offscreen = () => { const t = renderer.renderTarget && renderer.renderTarget.renderTarget; return !!t && t.isRoot === false; };
+    const hook = { postrender: () => { if (!offscreen()) onPostRender(); } };
     const onPostRender = () => {
       lastFrameAt = performance.now();
       if (!waiter) return;
@@ -231,7 +281,7 @@ const CartoCapture = (() => {
     const cancelled = () => { if (io.isCancelled()) { const e = new Error("Cancelled"); e.cancelled = true; throw e; } };
 
     current = job;
-    renderer.on("postrender", onPostRender);
+    if (runner) runner.add(hook); else renderer.on("postrender", onPostRender);
     let encoder = null, pending = null, warnedFb = false;
     try {
       encoder = await io.openEncoder({ width: outW, height: outH, k, mode, bg });
@@ -290,7 +340,7 @@ const CartoCapture = (() => {
     function restore() {
       if (current !== job) return;
       current = null;
-      try { renderer.off("postrender", onPostRender); } catch (e) {}
+      try { if (runner) runner.remove(hook); else renderer.off("postrender", onPostRender); } catch (e) {}
       st.session.overrideCamera = saved.override || false;
       st.session.lerpCamera = false;
       if (!saved.override) { st.session.camera.x = saved.camX; st.session.camera.y = saved.camY; }
@@ -298,11 +348,12 @@ const CartoCapture = (() => {
       if (bgContainer && saved.bg !== null) bgContainer.visible = saved.bg;
       if (player && player.container && saved.player !== null) player.container.visible = saved.player;
       if (player && player.trailContainer && saved.trail !== null) player.trailContainer.visible = saved.trail;
+      if (savedMouse) setMouse(mouse, savedMouse);
       if (simPaused && !st.session.paused) { try { manager.postMessage([SIM_SET_PAUSED, false]); } catch (e) {} }
       if (waiter) { const w = waiter; waiter = null; w.reject(new Error("Capture stopped")); }
     }
   }
 
-  return { run, describe, internals, xrayTables, stamp, shadowByteFor, lightFloors, MARGIN, TRIM_PAD_CELLS };
+  return { run, describe, internals, xrayTables, stamp, shadowByteFor, lightFloors, whitenLights, MARGIN, TRIM_PAD_CELLS };
 })();
 if (typeof module !== "undefined" && module.exports) module.exports = CartoCapture;

@@ -9,7 +9,9 @@ function worldPixel(x, y, skyRows) {
   return [(x * 7 + y * 3) & 255, ((x >> 2) ^ (y >> 2)) & 255, ((x + y) >> 3) & 255, 255];
 }
 
-function makeGame({ W = 256, H = 192, frameW = 320, frameH = 192, skyRows = 40, staleFirstFrame = false, fog = null } = {}) {
+// pixi8: the 0.6.0 renderer: no postrender event, a postrender runner called after each of three
+// render passes a frame, of which only the last is drawn to the screen (the others read empty).
+function makeGame({ W = 256, H = 192, frameW = 320, frameH = 192, skyRows = 40, staleFirstFrame = false, fog = null, pixi8 = false } = {}) {
   const handlers = {}, rHandlers = {}, posted = [];
   const mapData = new Uint8Array(W * H * 4), cellIds = new Uint32Array(W * H), wall = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -18,12 +20,14 @@ function makeGame({ W = 256, H = 192, frameW = 320, frameH = 192, skyRows = 40, 
   if (fog) for (let y = fog.y0; y < fog.y1; y++) for (let x = fog.x0; x < fog.x1; x++) cellIds[y * W + x] = fog.type;
   const tw = Math.max(4, Math.floor(frameW / CELL) - (Math.floor(frameW / CELL) % 4)), th = Math.floor(frameH / CELL);
   const timesWhileCapturing = [];
-  let renderedCam = { x: 0, y: 0 }, lastCam = { x: 0, y: 0 }, renderCount = 0, colorUpdates = 0;
+  let renderedCam = { x: 0, y: 0 }, lastCam = { x: 0, y: 0 }, renderCount = 0, colorUpdates = 0, onScreen = true;
+  const runner = { items: [], add(o) { this.items.push(o); }, remove(o) { this.items = this.items.filter((x) => x !== o); } };
   const gl = {
     RGBA: 0x1908, UNSIGNED_BYTE: 0x1401, FRAMEBUFFER: 0x8d40, FRAMEBUFFER_BINDING: 0x8ca6,
     drawingBufferWidth: frameW, drawingBufferHeight: frameH,
     getParameter: () => null, getContextAttributes: () => ({ premultipliedAlpha: true }), bindFramebuffer() {},
     readPixels(x0, y0, w, h, f, t, buf) {
+      if (!onScreen) { buf.fill(0, 0, w * h * 4); return; }
       for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
         const wx = renderedCam.x + c, wy = renderedCam.y + (h - 1 - r); // GL rows are bottom-up
         const p = wx < 0 || wy < 0 || wx >= W * CELL || wy >= H * CELL ? [0, 0, 0, 255] : worldPixel(wx, wy, skyRows);
@@ -36,6 +40,7 @@ function makeGame({ W = 256, H = 192, frameW = 320, frameH = 192, skyRows = 40, 
     on(ev, fn) { (rHandlers[ev] = rHandlers[ev] || []).push(fn); },
     off(ev, fn) { rHandlers[ev] = (rHandlers[ev] || []).filter((f) => f !== fn); },
   };
+  if (pixi8) Object.assign(renderer, { runners: { postrender: runner }, renderTarget: { renderTarget: { isRoot: true } } });
   const ctx2d = { canvas: { width: frameW, height: frameH }, save() {}, restore() {}, setTransform() {}, clearRect() {} };
   const pixi = {
     app: { renderer }, foregroundSprite: { visible: true }, colorBuffer: new Uint8Array(tw * th * 4),
@@ -81,7 +86,12 @@ function makeGame({ W = 256, H = 192, frameW = 320, frameH = 192, skyRows = 40, 
     lastCam = cam;
     renderCount++;
     if (state.session.overrideCamera) timesWhileCapturing.push(state.store.meta.time);
-    for (const f of rHandlers.postrender || []) f();
+    if (!pixi8) { for (const f of rHandlers.postrender || []) f(); return; }
+    for (const root of [false, false, true]) {
+      onScreen = root; renderer.renderTarget.renderTarget.isRoot = root;
+      for (const o of runner.items.slice()) o.postrender();
+    }
+    onScreen = true;
   }
   async function runFrames(promise) {
     let done = false, err = null, value;
@@ -91,6 +101,6 @@ function makeGame({ W = 256, H = 192, frameW = 320, frameH = 192, skyRows = 40, 
     return value;
   }
   return { sandkit, state, pixi, posted, timesWhileCapturing, tick, runFrames, worldPixel: (x, y) => worldPixel(x, y, skyRows), W, H,
-    get renderCount() { return renderCount; }, get colorUpdates() { return colorUpdates; }, get shadowUpdates() { return shadowUpdates; }, get lastShadow() { return lastShadow; }, tw, th, skyRows, get postrenderHandlers() { return (rHandlers.postrender || []).length; } };
+    get renderCount() { return renderCount; }, get colorUpdates() { return colorUpdates; }, get shadowUpdates() { return shadowUpdates; }, get lastShadow() { return lastShadow; }, tw, th, skyRows, get postrenderHandlers() { return (rHandlers.postrender || []).length + runner.items.length; } };
 }
 module.exports = { makeGame, CELL };

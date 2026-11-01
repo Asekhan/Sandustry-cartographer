@@ -135,22 +135,22 @@ const CartoLogic = (() => {
     }
     return buf;
   }
-  // Premultiplied RGBA over a background -> RGB. surface: output row of the first terrain per
-  // output column; above it the sky gradient (sky0 at row 0 -> sky1 at skyEnd), below it cave.
+  // Premultiplied RGBA over the sky gradient (sky0 at row 0 -> sky1 at skyEnd and below) -> RGB.
+  // Underground the background walls are opaque, so whatever shows through is open sky, even
+  // inside buildings.
   function compositeRGB(src, w, h, outY0, bg) {
     const out = new Uint8Array(w * h * 3);
-    const { surface, sky0, sky1, skyEnd, cave } = bg;
+    const { sky0, sky1, skyEnd } = bg;
     for (let r = 0; r < h; r++) {
       const y = outY0 + r, t = skyEnd > 0 ? Math.min(1, y / skyEnd) : 1;
       const sr = sky0[0] + (sky1[0] - sky0[0]) * t, sg = sky0[1] + (sky1[1] - sky0[1]) * t, sb = sky0[2] + (sky1[2] - sky0[2]) * t;
       for (let x = 0; x < w; x++) {
         const s = (r * w + x) * 4, d = (r * w + x) * 3, a = src[s + 3];
         if (a === 255) { out[d] = src[s]; out[d + 1] = src[s + 1]; out[d + 2] = src[s + 2]; continue; }
-        const under = y >= surface[x];
-        const br = under ? cave[0] : sr, bgc = under ? cave[1] : sg, bb = under ? cave[2] : sb, f = (255 - a) / 255;
-        out[d] = Math.min(255, Math.round(src[s] + br * f));
-        out[d + 1] = Math.min(255, Math.round(src[s + 1] + bgc * f));
-        out[d + 2] = Math.min(255, Math.round(src[s + 2] + bb * f));
+        const f = (255 - a) / 255;
+        out[d] = Math.min(255, Math.round(src[s] + sr * f));
+        out[d + 1] = Math.min(255, Math.round(src[s + 1] + sg * f));
+        out[d + 2] = Math.min(255, Math.round(src[s + 2] + sb * f));
       }
     }
     return out;

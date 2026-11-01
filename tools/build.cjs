@@ -8,7 +8,11 @@ const fs = require("node:fs"), path = require("node:path"), zlib = require("node
 const root = path.join(__dirname, ".."), src = (f) => fs.readFileSync(path.join(root, "src", f), "utf8");
 const VERSION = "1.0.0";
 const DESCRIPTION = [
-  "Takes a picture of your whole map. Reveals caves and terrain.",
+  "Takes a picture of your whole map and saves it as one PNG, at up to the game's own detail (4 px per cell).",
+  "",
+  "- Explorer look: reveals caves and terrain hidden in the dark. Game look: exactly what the game shows.",
+  "- Whole map, a large area or just around you; full, half or small size; sky filled or transparent; lamps in colour or all white.",
+  "- Only takes pictures: your world is never changed. The game pauses during the capture; Esc cancels.",
   "",
   "Map button at the top right, or F7.",
 ].join("\n");

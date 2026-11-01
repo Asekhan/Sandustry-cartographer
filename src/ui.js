@@ -9,7 +9,7 @@ const LOOKS = {
   explorer: { floorOpen: 0.3, floorRock: 0.2, xray: true },
   game: { floorOpen: 0, floorRock: 0, xray: false },
 };
-const DEFAULTS = { look: "explorer", area: "map", background: "filled", scale: 1, hidePlayer: true, trimSky: true };
+const DEFAULTS = { look: "explorer", area: "map", background: "filled", scale: 1, hidePlayer: true, trimSky: true, whiteLights: false };
 const SCALES = [[1, "Full", "4 px per cell"], [2, "Half", "2 px per cell"], [4, "Small", "1 px per cell"]];
 // Areas centred on the view, in cells (x 4 px at full size).
 const AREA_CELLS = { large: [1488, 1080], local: [496, 360] };
@@ -22,7 +22,7 @@ const log = (o) => {
 };
 const toast = (msg, ms) => { try { api.ui.toast(msg, { duration: ms || 6000 }); } catch (e) {} };
 const fmt = (n) => Math.round(n).toLocaleString("en-US");
-const mb = (b) => (b / 1048576).toFixed(b < 10485760 ? 1 : 0) + " MB";
+const mb = (b) => b < 1048576 ? Math.max(1, Math.round(b / 1024)) + " KB" : (b / 1048576).toFixed(b < 10485760 ? 1 : 0) + " MB";
 
 let opts = Object.assign({}, DEFAULTS);
 try { const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); if (s) opts = Object.assign(opts, s); } catch (e) {}
@@ -346,8 +346,8 @@ function Panel() {
     h("div", { className: "carto-label" }, "Area"), seg(AREAS, "area"),
     h("div", { className: "carto-grid" },
       h("div", null, h("div", { className: "carto-label" }, "Size"), seg(SCALES, "scale")),
-      h("div", null, h("div", { className: "carto-label" }, "Background"), seg([["filled", "Sky & caves"], ["transparent", "Transparent"]], "background"))),
-    h("div", { className: "carto-checks" }, check("hidePlayer", "Hide player"), opts.area === "map" ? check("trimSky", "Trim empty sky") : null),
+      h("div", null, h("div", { className: "carto-label" }, "Background"), seg([["filled", "Sky"], ["transparent", "Transparent"]], "background"))),
+    h("div", { className: "carto-checks" }, check("hidePlayer", "Hide player"), check("whiteLights", "White lamps"), opts.area === "map" ? check("trimSky", "Trim empty sky") : null),
     h("div", { className: "carto-foot" },
       h("div", { className: "carto-est" }, est
         ? [h("b", { key: "a" }, `${fmt(est.outW)} × ${fmt(est.outH)} px`), h("span", { key: "b" }, `${mp.toFixed(mp < 10 ? 1 : 0)} megapixels · ${scaleNote} · roughly ${Math.max(1, Math.round(mp * 0.2))} MB`)]
@@ -360,6 +360,7 @@ function Panel() {
 
 // HUD button, under the game's menu button (top right).
 function HudButton() {
+  if (!inGame()) return null; // the region also exists on the main menu
   const stop = (e) => e.stopPropagation();
   return h("button", { className: "carto-hud", title: "Cartographer: save the map as a picture (" + HOTKEY + ")",
     onMouseDown: stop, onMouseUp: stop, onPointerDown: stop,

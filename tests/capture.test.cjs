@@ -32,6 +32,18 @@ test("stitched native capture equals the world pixel for pixel", async () => {
   assert.equal(result.stats.frames, 2 * result.stats.tiles);
 });
 
+test("0.6.0 (Pixi 8): reads only the pass drawn to the screen, and unhooks the runner", async () => {
+  const game = makeGame({ W: 128, H: 96, frameW: 320, frameH: 192, skyRows: 20, pixi8: true });
+  const { result, png } = await capture(game, base);
+  const d = decodePng(png);
+  for (const [x, y] of [[0, 0], [300, 200], [511, 383], [100, 90]]) {
+    const o = (y * d.w + x) * 4;
+    assert.deepEqual([...d.px.subarray(o, o + 4)], game.worldPixel(x, y), `pixel ${x},${y}`);
+  }
+  assert.equal(result.stats.frames, 2 * result.stats.tiles, "one counted frame per screen pass");
+  assert.equal(game.postrenderHandlers, 0);
+});
+
 test("restores camera, visibility and simulation; freezes game time while capturing", async () => {
   const game = makeGame({});
   const t0 = game.state.store.meta.time;
@@ -121,4 +133,13 @@ test("refuses when paused or zoomed out", async () => {
   await assert.rejects(Cap.run(game.sandkit, L, base, {}), /paused/);
   game.state.session.paused = false; game.state.session.view.zoom = 0.5;
   await assert.rejects(Cap.run(game.sandkit, L, base, {}), /Zoom/);
+});
+
+test("white lamps: picked lights take their strongest channel, the others keep their colour", () => {
+  // [x, y, size, intensity, r, g, b]
+  const d = new Float32Array([10, 20, 600, 0.8, 0, 1, 0.5, 99, 20, 200, 1, 1, 0, 0]);
+  Cap.whitenLights(d, 2, 7, (x) => x === 10);
+  assert.deepEqual(Array.from(d.slice(4, 7)), [1, 1, 1]);
+  assert.deepEqual(Array.from(d.slice(11, 14)), [1, 0, 0]);
+  assert.deepEqual(Array.from(d.slice(0, 4)), [10, 20, 600, Math.fround(0.8)]);
 });
