@@ -24,7 +24,7 @@ Render-only: the world is never written to. The simulation pauses during the swe
 | `tools/build.cjs` | Bundles `src/` into `mod/main.js`, writes `modinfo.json` (name, version, Steam description) |
 | `tools/make_art.py` | Builds `mod/preview.png` and `workshop/screenshots/` from real captures |
 | `tests/` | `node --test tests/*.test.cjs`: logic, a fake game (stitching, restore, floors, x-ray), the built bundle |
-| `captures/`, `workshop/` | Local only (not in the repo): test snapshots and Workshop page screenshots |
+| `workshop/` | Local only (not in the repo): main-picture brief, Workshop screenshots, and the full-size captures they come from |
 
 ## Recipes
 - **Build and test:** `node tools/build.cjs && node --test tests/*.test.cjs`
