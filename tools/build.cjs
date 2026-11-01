@@ -8,13 +8,15 @@ const fs = require("node:fs"), path = require("node:path"), zlib = require("node
 const root = path.join(__dirname, ".."), src = (f) => fs.readFileSync(path.join(root, "src", f), "utf8");
 const VERSION = "1.0.0";
 const DESCRIPTION = [
-  "Takes a picture of your whole map and saves it as one PNG, at up to the game's own detail (4 px per cell).",
+  "Save your whole world as one picture.",
   "",
-  "- Explorer look: reveals caves and terrain hidden in the dark. Game look: exactly what the game shows.",
-  "- Whole map, a large area or just around you; full, half or small size; sky filled or transparent; lamps in colour or all white.",
-  "- Only takes pictures: your world is never changed. The game pauses during the capture; Esc cancels.",
+  "Press F7 (or the map button, top right), pick a look and press Capture. You get one PNG of the whole map, a large area or just around you, at up to the game's own detail.",
   "",
-  "Map button at the top right, or F7.",
+  "- Explorer: reveals the caves and terrain hidden in the dark.",
+  "- Game: exactly what you see in game.",
+  "- Options: white lamps, transparent background, half or small size.",
+  "",
+  "Only takes pictures: your world is never changed. Esc cancels.",
 ].join("\n");
 const manifest = {
   manifestVersion: 1, id: "asekhan.cartographer", name: "Cartographer - Whole Map Snapshot", version: VERSION, apiVersion: 1,
