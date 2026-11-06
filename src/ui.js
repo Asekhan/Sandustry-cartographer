@@ -28,6 +28,7 @@ let opts = Object.assign({}, DEFAULTS);
 try { const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); if (s) opts = Object.assign(opts, s); } catch (e) {}
 if (!LOOKS[opts.look]) opts.look = DEFAULTS.look;
 if (opts.area !== "map" && !AREA_CELLS[opts.area]) opts.area = "map";
+if (!SCALES.some((s) => s[0] === opts.scale)) opts.scale = DEFAULTS.scale;
 const saveOpts = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(opts)); } catch (e) {} };
 // Area around the centre of the view, shifted to stay inside the world.
 function areaAroundCamera(kind) {
@@ -37,7 +38,10 @@ function areaAroundCamera(kind) {
   const x0 = Math.max(0, Math.min(W - w, cx - w / 2)), y0 = Math.max(0, Math.min(H - hh, cy - hh / 2));
   return { x0, y0, x1: Math.min(W, x0 + w), y1: Math.min(H, y0 + hh) };
 }
-const captureConfig = (o) => Object.assign({}, o, LOOKS[o.look] || LOOKS.explorer, AREA_CELLS[o.area] ? { region: areaAroundCamera(o.area) } : {});
+// Size is a divisor (1 full, 2 half, 4 small). Anything else falls back to full: a stray 0.25 from a script or a
+// damaged saved setting would otherwise ask for a picture 16 times the full size.
+const validScale = (k) => (SCALES.some((s) => s[0] === k) ? k : DEFAULTS.scale);
+const captureConfig = (o) => Object.assign({}, o, { scale: validScale(o.scale) }, LOOKS[o.look] || LOOKS.explorer, AREA_CELLS[o.area] ? { region: areaAroundCamera(o.area) } : {});
 
 let panelOpen = false, running = false, cancelFlag = false, lastMsg = null, refreshUi = () => {};
 let scanCache = null;
